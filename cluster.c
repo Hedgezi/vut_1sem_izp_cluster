@@ -82,7 +82,14 @@ void init_cluster(struct cluster_t *c, int cap)
     assert(c != NULL);
     assert(cap >= 0);
 
-    // TODO
+    c->size = 0;
+    c->capacity = cap;
+    if (c->capacity > 0) {
+        c->obj = malloc(cap*sizeof(struct obj_t));
+        assert(c->obj != NULL);
+    }
+    else
+        c->obj = NULL;
 
 }
 
@@ -91,7 +98,10 @@ void init_cluster(struct cluster_t *c, int cap)
  */
 void clear_cluster(struct cluster_t *c)
 {
-    // TODO
+    free(c->obj);
+    c->obj = NULL;
+    c->capacity = 0;
+    c->size = 0;
 }
 
 /// Chunk of cluster objects. Value recommended for reallocation.
@@ -127,7 +137,13 @@ struct cluster_t *resize_cluster(struct cluster_t *c, int new_cap)
  */
 void append_cluster(struct cluster_t *c, struct obj_t obj)
 {
-    // TODO
+    if (c->size == c->capacity) {
+        c = resize_cluster(c, c->capacity+1);
+        c->capacity++;
+        assert(c->obj != NULL);
+    }
+    c->obj[c->size] = obj;
+    c->size++;
 }
 
 /*
@@ -246,7 +262,32 @@ int load_clusters(char *filename, struct cluster_t **arr)
 {
     assert(arr != NULL);
 
-    // TODO
+    int count = 0;
+
+    FILE *file = fopen(filename, "r");
+    fscanf(file, "count=%d\n", &count);
+
+    struct cluster_t poleshluku[count];
+
+    int id; float x, y;
+    for (int i = 0; i < count; i++) {
+        struct cluster_t temp_cluster;
+        struct obj_t temp_object;
+        fscanf(file, "%d %f %f\n", &id, &x, &y);
+        temp_object.id = id;
+        temp_object.x = x;
+        temp_object.y = y;
+        init_cluster(&temp_cluster, 1);
+        append_cluster(&temp_cluster, temp_object);
+        poleshluku[i] = temp_cluster;
+    }
+    struct cluster_t *clusterarray = malloc(sizeof(poleshluku));
+    for (int i = 0; i < count; i++) {
+        clusterarray[i] = poleshluku[i];
+    }
+    *arr = clusterarray;
+
+    fclose(file);
 }
 
 /*
@@ -267,5 +308,6 @@ int main(int argc, char *argv[])
 {
     struct cluster_t *clusters;
 
-    // TODO
+    load_clusters(argv[1], &clusters);
+    print_clusters(clusters, 20);
 }
