@@ -98,6 +98,7 @@ void init_cluster(struct cluster_t *c, int cap)
  */
 void clear_cluster(struct cluster_t *c)
 {
+    assert(c != NULL);
     free(c->obj);
     c->obj = NULL;
     c->capacity = 0;
@@ -186,7 +187,11 @@ int remove_cluster(struct cluster_t *carr, int narr, int idx)
     assert(idx < narr);
     assert(narr > 0);
 
-    // TODO
+    free(carr[idx].obj);
+    for (int i = idx; i < narr-1; i++) {
+        carr[i] = carr[i+1];
+    }
+    return narr - 1;
 }
 
 /*
@@ -210,7 +215,7 @@ float cluster_distance(struct cluster_t *c1, struct cluster_t *c2)
     assert(c2 != NULL);
     assert(c2->size > 0);
 
-    // TODO
+    
 }
 
 /*
@@ -290,6 +295,7 @@ int load_clusters(char *filename, struct cluster_t **arr)
         append_cluster(&temp_cluster, temp_object);
         poleshluku[i] = temp_cluster;
     }
+
     struct cluster_t *clusterarray = malloc(sizeof(poleshluku));
     for (int i = 0; i < count; i++) {
         clusterarray[i] = poleshluku[i];
@@ -297,6 +303,7 @@ int load_clusters(char *filename, struct cluster_t **arr)
     *arr = clusterarray;
 
     fclose(file);
+    return count;
 }
 
 /*
@@ -317,8 +324,14 @@ int main(int argc, char *argv[])
 {
     struct cluster_t *clusters;
 
-    load_clusters(argv[1], &clusters);
+    int count = load_clusters(argv[1], &clusters);
     print_clusters(clusters, 20);
-    merge_clusters(&clusters[0], &clusters[1]);
-    dint(clusters[0].obj[1].id);
+    dint(count);
+    // merge_clusters(&clusters[0], &clusters[1]);
+    // dint(clusters[1].obj->id);
+    // remove_cluster(clusters, 20, 1);
+    // dint(clusters[1].obj->id);
+    // for (int i = 0; i < count; i++) {
+    //     clear_cluster(&clusters[i]);
+    // }
 }
