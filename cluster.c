@@ -161,7 +161,16 @@ void merge_clusters(struct cluster_t *c1, struct cluster_t *c2)
     assert(c1 != NULL);
     assert(c2 != NULL);
 
-    // TODO
+    int finalsize = c1->size+c2->size;
+
+    if (c1->capacity < finalsize) {
+        c1 = resize_cluster(c1, finalsize);
+    }
+    for (int i = c1->size; i < finalsize; i++) {
+        c1->obj[i] = c2->obj[i-c1->size];
+        dint(c2->obj[i-c1->size].id);
+    }
+    c1->size = finalsize;
 }
 
 /**********************************************************************/
@@ -188,7 +197,7 @@ float obj_distance(struct obj_t *o1, struct obj_t *o2)
     assert(o1 != NULL);
     assert(o2 != NULL);
 
-    // TODO
+    return sqrt(pow((o1->x - o2->x), 2)+pow((o1->y - o2->y), 2));
 }
 
 /*
@@ -310,4 +319,6 @@ int main(int argc, char *argv[])
 
     load_clusters(argv[1], &clusters);
     print_clusters(clusters, 20);
+    merge_clusters(&clusters[0], &clusters[1]);
+    dint(clusters[0].obj[1].id);
 }
