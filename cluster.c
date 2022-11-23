@@ -294,14 +294,15 @@ int load_clusters(char *filename, struct cluster_t **arr)
     int count = 0;
 
     FILE *file = fopen(filename, "r");
-    fscanf(file, "count=%d\n", &count);
+    assert(file != NULL);
+    assert(fscanf(file, "count=%d\n", &count) == 1);
 
     struct cluster_t poleshluku[count];
 
     int id; float x, y;
     for (int i = 0; i < count; i++) {
         struct cluster_t temp_cluster;
-        fscanf(file, "%d %f %f\n", &id, &x, &y);
+        assert(fscanf(file, "%d %f %f\n", &id, &x, &y) == 3);
         struct obj_t temp_object = {.id=id, .x=x, .y=y};
         init_cluster(&temp_cluster, 1);
         append_cluster(&temp_cluster, temp_object);
@@ -335,11 +336,21 @@ void print_clusters(struct cluster_t *carr, int narr)
 int main(int argc, char *argv[])
 {
     struct cluster_t *clusters;
+    int clusterstosortnum;
+    if (argc == 2) {
+        clusterstosortnum = 1;
+    }
+    else if (argc == 3) {
+        clusterstosortnum = atoi(argv[2]);
+    }
+    else {
+        return 1;
+    }
 
     int c1, c2;
     int count = load_clusters(argv[1], &clusters);
     int sizeofarr = count;
-    for (int i = 0; i < count - atoi(argv[2]); i++) {
+    for (int i = 0; i < count - clusterstosortnum; i++) {
         find_neighbours(clusters, sizeofarr, &c1, &c2);
         merge_clusters(&clusters[c1], &clusters[c2]);
         sizeofarr = remove_cluster(clusters, sizeofarr, c2);
