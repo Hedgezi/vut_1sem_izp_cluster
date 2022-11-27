@@ -355,6 +355,10 @@ float cd_maximum_objd(struct cluster_t *c1, struct cluster_t *c2)
     return dist;
 }
 
+/*
+  Extracts all the objects from the cluster array
+  and puts them into one array.
+*/
 void extract_objects(struct cluster_t *arr, int narr, struct obj_t *objarr){
     for (int i = 0; i < narr; i++) {
         objarr[i] = arr[i].obj[0];
@@ -363,51 +367,63 @@ void extract_objects(struct cluster_t *arr, int narr, struct obj_t *objarr){
 
 int compare_objects(struct obj_t *a, struct obj_t *b, int k) {
     for (int i = 0; i < k; i++) {
-        dint(a[i].x == b[i].x && a[i].y == b[i].y);
         if (a[i].x == b[i].x && a[i].y == b[i].y) return 1;
     }
     return 0;
 }
 
-void k_means(struct obj_t *objarr, int narr, int k) {
+int nearest_point(struct obj_t *givenobj, struct obj_t *centroids, int k) {
+    assert(k > 1);
+    float dist = obj_distance(givenobj, &centroids[0]);
+    int idnearestcl = 0;
+    for (int j = 1; j < k; j++)  {
+        if (obj_distance(givenobj, &centroids[j]) < dist) {
+            dist = obj_distance(givenobj, &centroids[j]);
+            idnearestcl = j;
+        }
+    }
+    return idnearestcl;
+}
+
+struct cluster_t *k_means(struct obj_t *objarr, int narr, int k) {
     struct obj_t *centroids = malloc(sizeof(struct obj_t) * k);
     for (int i = 0; i < k; i++) {
         centroids[i] = objarr[i];
     }
-    int iterations = 0;
-    struct obj_t *oldcentroids = malloc(sizeof(struct obj_t) * k);
-    float dist; int numofbestcl;
+    int iterations = 0; int numofbestcl;
+    struct obj_t *oldcentroids = calloc(k, sizeof(struct obj_t));
     struct cluster_t *labels = calloc(k, sizeof(struct cluster_t));
     for (int i = 0; i < k; i++) init_cluster(&labels[i], 1);
     while (!compare_objects(centroids, oldcentroids, k) && iterations < 200) {
-        memcpy(oldcentroids, centroids, sizeof(struct cluster_t) * k);
         for (int i = 0; i < k; i++) clear_cluster(&labels[i]);
         for (int i = 0; i < narr; i++) {
-            dist = obj_distance(&objarr[i], &centroids[0]);
-            numofbestcl = 0;
-            for (int j = 1; j < k; j++)  {
-                if (obj_distance(&objarr[i], &centroids[j]) < dist) {
-                    dist = obj_distance(&objarr[i], &centroids[j]);
-                    numofbestcl = j;
-                }
-            }
+            numofbestcl = nearest_point(&objarr[i], centroids, k);
             append_cluster(&labels[numofbestcl], objarr[i]);
         }
-        for (int i = 0; i < k; i++) {
-            for (int j = 1; j < labels[i].size; j++) {
-                // dfloat(labels[i].obj[j].x);
-                centroids[i].x += labels[i].obj[j].x;
-                centroids[i].y += labels[i].obj[j].y;
-                centroids[i].x /= 2;
-                centroids[i].y /= 2;
-                // dfloat(centroids[i].x);
+        if (iterations == 0) {
+            for (int i = 0; i < k; i++) {
+                if (labels[i].size == 1) {
+                    centroids[i] = objarr[k];
+                    continue;
+                }
             }
         }
-        dfloat(centroids[2].x);
-        dint(iterations);
+        memcpy(oldcentroids, centroids, sizeof(struct obj_t) * k);
+        struct obj_t newcentroid;
+        for (int i = 0; i < k; i++) {
+            newcentroid = labels[i].obj[0];
+            for (int j = 1; j < labels[i].size; j++) {
+                newcentroid.x += labels[i].obj[j].x;
+                newcentroid.y += labels[i].obj[j].y;
+            }
+            newcentroid.x /= labels[i].size;
+            newcentroid.y /= labels[i].size;
+            centroids[i] = newcentroid;
+        }
+        dfmt("centroid: x: %f, y: %f", centroids[2].x, centroids[2].y);
         iterations++;
     }
-    print_clusters(labels, k);
+    return labels;
 }
 
 int main(int argc, char *argv[])
@@ -417,29 +433,41 @@ int main(int argc, char *argv[])
     int clusterstosortnum;
     if (argc == 2) {
         clusterstosortnum = 1;
+        int count = load_clusters(argv[1], &clusters);
+        print_clusters(clusters, count);
+        return 0;
     }
     else if (argc == 3) {
         clusterstosortnum = atoi(argv[2]);
+    }
+    else if (argc == 4 && strcmp(argv[1], "-k") == 0) {
+        clusterstosortnum = atoi(argv[3]);
+        int count = load_clusters(argv[2], &clusters);
+        struct obj_t *objarr = malloc(sizeof(struct obj_t) * count);
+        extract_objects(clusters, count, objarr);
+        struct cluster_t *sortedarr = k_means(objarr, count, clusterstosortnum);
+        print_clusters(sortedarr, clusterstosortnum);
+        for (int i = 0; i < clusterstosortnum; i++) {
+            free(clusters[i].obj);
+        }
+        free(clusters);
+        return 0;
     }
     else {
         fprintf(stderr, "incorrect number of arguments! try: ./cluster 'file' [clustersnum]\n");
         return 1;
     }
 
-    // int c1, c2;
+    int c1, c2;
     int count = load_clusters(argv[1], &clusters);
     int sizeofarr = count;
-    struct obj_t *objarr = malloc(sizeof(struct obj_t) * count);
-    extract_objects(clusters, count, objarr);
-
-    k_means(objarr, count, clusterstosortnum);
-    // for (int i = 0; i < count - clusterstosortnum; i++) {
-    //     find_neighbours(clusters, sizeofarr, &c1, &c2, &cd_maximum_objd);
-    //     merge_clusters(&clusters[c1], &clusters[c2]);
-    //     sizeofarr = remove_cluster(clusters, sizeofarr, c2);
-    //     sort_cluster(&clusters[c1]);
-    // }
-    // print_clusters(clusters, sizeofarr);
+    for (int i = 0; i < count - clusterstosortnum; i++) {
+        find_neighbours(clusters, sizeofarr, &c1, &c2, &cluster_distance);
+        merge_clusters(&clusters[c1], &clusters[c2]);
+        sizeofarr = remove_cluster(clusters, sizeofarr, c2);
+        sort_cluster(&clusters[c1]);
+    }
+    print_clusters(clusters, sizeofarr);
 
     for (int i = 0; i < sizeofarr; i++) {
         free(clusters[i].obj);
