@@ -10,6 +10,8 @@
 #include <math.h> // sqrtf
 #include <limits.h> // INT_MAX
 
+#include <string.h> // memcpy
+
 /*****************************************************************
  * Ladici makra. Vypnout jejich efekt lze definici makra
  * NDEBUG, napr.:
@@ -141,7 +143,6 @@ void append_cluster(struct cluster_t *c, struct obj_t obj)
 {
     if (c->size == c->capacity) {
         c = resize_cluster(c, c->capacity+1);
-        c->capacity++;
         assert(c->obj != NULL);
     }
     c->obj[c->size] = obj;
@@ -228,17 +229,17 @@ float cluster_distance(struct cluster_t *c1, struct cluster_t *c2)
  'carr'. Funkce nalezene shluky (indexy do pole 'carr') uklada do pameti na
  adresu 'c1' resp. 'c2'.
 */
-void find_neighbours(struct cluster_t *carr, int narr, int *c1, int *c2)
+void find_neighbours(struct cluster_t *carr, int narr, int *c1, int *c2, float (*cd)(struct cluster_t *, struct cluster_t *))
 {
     assert(narr > 0);
 
-    float mindist = cluster_distance(&carr[0], &carr[1]);
+    float mindist = cd(&carr[0], &carr[1]);
     *c1 = 0; *c2 = 1;
 
     for (int i = 0; i < narr; i++) {
         for (int j = i+1; j < narr; j++) {
-            if (mindist > cluster_distance(&carr[i], &carr[j])) {
-                mindist = cluster_distance(&carr[i], &carr[j]);
+            if (mindist > cd(&carr[i], &carr[j])) {
+                mindist = cd(&carr[i], &carr[j]);
                 *c1 = i;
                 *c2 = j;
             }
@@ -333,9 +334,86 @@ void print_clusters(struct cluster_t *carr, int narr)
     }
 }
 
+/*
+ Pocita vzdalenost dvou shluku,
+ pomoci metody nejvzdálenějšího souseda.
+*/
+float cd_maximum_objd(struct cluster_t *c1, struct cluster_t *c2)
+{
+    assert(c1 != NULL);
+    assert(c1->size > 0);
+    assert(c2 != NULL);
+    assert(c2->size > 0);
+
+    float dist = obj_distance(&c1->obj[0], &c2->obj[0]);
+
+    for (int i = 0; i < c1->size; i++) {
+        for (int j = 0; j < c2->size; j++) {
+            dist = (dist < obj_distance(&c1->obj[i], &c2->obj[j])) ? obj_distance(&c1->obj[i], &c2->obj[j]) : dist;
+        }
+    }
+    return dist;
+}
+
+void extract_objects(struct cluster_t *arr, int narr, struct obj_t *objarr){
+    for (int i = 0; i < narr; i++) {
+        objarr[i] = arr[i].obj[0];
+    }
+}
+
+int compare_objects(struct obj_t *a, struct obj_t *b, int k) {
+    for (int i = 0; i < k; i++) {
+        dint(a[i].x == b[i].x && a[i].y == b[i].y);
+        if (a[i].x == b[i].x && a[i].y == b[i].y) return 1;
+    }
+    return 0;
+}
+
+void k_means(struct obj_t *objarr, int narr, int k) {
+    struct obj_t *centroids = malloc(sizeof(struct obj_t) * k);
+    for (int i = 0; i < k; i++) {
+        centroids[i] = objarr[i];
+    }
+    int iterations = 0;
+    struct obj_t *oldcentroids = malloc(sizeof(struct obj_t) * k);
+    float dist; int numofbestcl;
+    struct cluster_t *labels = calloc(k, sizeof(struct cluster_t));
+    for (int i = 0; i < k; i++) init_cluster(&labels[i], 1);
+    while (!compare_objects(centroids, oldcentroids, k) && iterations < 200) {
+        memcpy(oldcentroids, centroids, sizeof(struct cluster_t) * k);
+        for (int i = 0; i < k; i++) clear_cluster(&labels[i]);
+        for (int i = 0; i < narr; i++) {
+            dist = obj_distance(&objarr[i], &centroids[0]);
+            numofbestcl = 0;
+            for (int j = 1; j < k; j++)  {
+                if (obj_distance(&objarr[i], &centroids[j]) < dist) {
+                    dist = obj_distance(&objarr[i], &centroids[j]);
+                    numofbestcl = j;
+                }
+            }
+            append_cluster(&labels[numofbestcl], objarr[i]);
+        }
+        for (int i = 0; i < k; i++) {
+            for (int j = 1; j < labels[i].size; j++) {
+                // dfloat(labels[i].obj[j].x);
+                centroids[i].x += labels[i].obj[j].x;
+                centroids[i].y += labels[i].obj[j].y;
+                centroids[i].x /= 2;
+                centroids[i].y /= 2;
+                // dfloat(centroids[i].x);
+            }
+        }
+        dfloat(centroids[2].x);
+        dint(iterations);
+        iterations++;
+    }
+    print_clusters(labels, k);
+}
+
 int main(int argc, char *argv[])
 {
     struct cluster_t *clusters;
+
     int clusterstosortnum;
     if (argc == 2) {
         clusterstosortnum = 1;
@@ -344,19 +422,24 @@ int main(int argc, char *argv[])
         clusterstosortnum = atoi(argv[2]);
     }
     else {
+        fprintf(stderr, "incorrect number of arguments! try: ./cluster 'file' [clustersnum]\n");
         return 1;
     }
 
-    int c1, c2;
+    // int c1, c2;
     int count = load_clusters(argv[1], &clusters);
     int sizeofarr = count;
-    for (int i = 0; i < count - clusterstosortnum; i++) {
-        find_neighbours(clusters, sizeofarr, &c1, &c2);
-        merge_clusters(&clusters[c1], &clusters[c2]);
-        sizeofarr = remove_cluster(clusters, sizeofarr, c2);
-        sort_cluster(&clusters[c1]);
-    }
-    print_clusters(clusters, sizeofarr);
+    struct obj_t *objarr = malloc(sizeof(struct obj_t) * count);
+    extract_objects(clusters, count, objarr);
+
+    k_means(objarr, count, clusterstosortnum);
+    // for (int i = 0; i < count - clusterstosortnum; i++) {
+    //     find_neighbours(clusters, sizeofarr, &c1, &c2, &cd_maximum_objd);
+    //     merge_clusters(&clusters[c1], &clusters[c2]);
+    //     sizeofarr = remove_cluster(clusters, sizeofarr, c2);
+    //     sort_cluster(&clusters[c1]);
+    // }
+    // print_clusters(clusters, sizeofarr);
 
     for (int i = 0; i < sizeofarr; i++) {
         free(clusters[i].obj);
