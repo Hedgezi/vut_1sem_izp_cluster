@@ -330,16 +330,16 @@ int load_clusters(char *filename, struct cluster_t **arr)
     for (int i = 0; i < count; i++) {
         struct cluster_t temp_cluster;
         if (fscanf(file, "%f %f %f\n", &temp_id, &x, &y) != 3) { // if there is no 3 arguments
-            fprintf(stderr, "error: invalid input (less than 3 numbers in line)\n");
+            fprintf(stderr, "error: invalid input (less than 3 numbers in line %d)\n", i+2);
             exit(1);
         }
-        if (trunc(temp_id) != temp_id) { // if id is not integer
-            fprintf(stderr, "error: id is not integer\n");
+        if (trunc(temp_id) != temp_id || trunc(x) != x || trunc(y) != y) { // if id is not integer
+            fprintf(stderr, "error: data are not integer (on line %d)\n", i+2);
             exit(1);
         }
         id = temp_id;
         if (id < 0 || x > 1000 || y > 1000 || x < 0 || y < 0) {
-            fprintf(stderr, "error: invalid input\n");
+            fprintf(stderr, "error: invalid input (on line %d)\n", i+2);
             exit(1);
         }
         for (int j = 0; j < i; j++) { // test for unique id
@@ -425,25 +425,96 @@ int compare_objects(struct obj_t *a, struct obj_t *b, int k) {
     return 0;
 }
 
+float squared_obj_distance(struct obj_t *o1, struct obj_t *o2)
+{
+    assert(o1 != NULL);
+    assert(o2 != NULL);
+
+    return pow((o1->x - o2->x), 2)+pow((o1->y - o2->y), 2);
+}
+
 int nearest_point(struct obj_t *givenobj, struct obj_t *centroids, int k) {
     assert(k > 1);
-    float dist = obj_distance(givenobj, &centroids[0]);
+    float dist = squared_obj_distance(givenobj, &centroids[0]);
     int idnearestcl = 0;
     for (int j = 1; j < k; j++)  {
-        if (obj_distance(givenobj, &centroids[j]) < dist) {
-            dist = obj_distance(givenobj, &centroids[j]);
+        if (squared_obj_distance(givenobj, &centroids[j]) < dist) {
+            dist = squared_obj_distance(givenobj, &centroids[j]);
             idnearestcl = j;
         }
     }
     return idnearestcl;
 }
 
-struct cluster_t *k_means(struct obj_t *objarr, int narr, int k) {
-    struct obj_t *centroids = malloc(sizeof(struct obj_t) * k);
-    for (int i = 0; i < k; i++) {
-        centroids[i] = objarr[i];
+struct obj_t *k_meanspp(struct obj_t *objarr, int narr, int k) { // k-means++ without random
+    assert(objarr != NULL);
+    assert(narr > 0);
+    assert(k > 0);
+
+    struct obj_t *centroids = malloc(sizeof(struct obj_t)*k);
+    centroids[0] = objarr[0];
+    for (int i = 1; i < k; i++) {
+        float dist = 0;
+        float *distances = malloc(sizeof(float)*narr);
+        for (int j = 0; j < narr; j++) {
+            float min = squared_obj_distance(&objarr[j], &centroids[0]);
+            for (int l = 1; l < i; l++) {
+                if (squared_obj_distance(&objarr[j], &centroids[l]) < min) {
+                    min = squared_obj_distance(&objarr[j], &centroids[l]);
+                }
+            }
+            distances[j] = min;
+            dist += min;
+        }
+        float random = (float)rand()/(float)RAND_MAX;
+        float sum = 0;
+        for (int j = 0; j < narr; j++) {
+            sum += distances[j]/dist;
+            if (sum >= random) {
+                centroids[i] = objarr[j];
+                break;
+            }
+        }
+        free(distances);
     }
-    int iterations = 0; int numofbestcl;
+    return centroids;
+}
+
+// struct obj_t *k_meanspp(struct obj_t *objarr, int narr, int k) { // k-means++ without random
+//     struct obj_t *centroids = malloc(sizeof(struct obj_t)*k);
+//     centroids[0] = objarr[0];
+//     struct obj_t *available_objs = malloc(sizeof(struct obj_t)*(narr-1));
+//     float *distances = malloc(sizeof(float)*(narr-1));
+//     memcpy(available_objs, &objarr[1], sizeof(struct obj_t)*(narr-1));
+//     for (int i = 1; i < k; i++) {
+//         float sum = 0;
+//         for (int j = 0; j < sizeof(available_objs)/sizeof(struct obj_t); j++) {
+//             float dist = squared_obj_distance(&available_objs[j], &centroids[0]);
+//             for (int l = 1; l < i; l++) {
+//                 if (squared_obj_distance(&available_objs[j], &centroids[l]) < dist) {
+//                     dist = squared_obj_distance(&available_objs[j], &centroids[l]);
+//                 }
+//             }
+//             distances[j] = dist;
+//         }
+//         for (int i = 0; i < sizeof(distances)/sizeof(float); i++) {
+//             distances[i] = pow(distances[i], 2);
+//             sum += distances[i];
+//         }
+//         float random = rand()%(int)sum;
+//     }
+//     return centroids;
+// }
+
+struct cluster_t *k_means(struct obj_t *objarr, int narr, int k) {
+    // struct obj_t *centroids = malloc(sizeof(struct obj_t) * k);
+    // for (int i = 0; i < k; i++) {
+    //     centroids[i] = objarr[i];
+    // }
+    struct obj_t *centroids = k_meanspp(objarr, narr, k);
+    fprintf(stderr, "Centroids: I: %f:%f II: %f:%f III: %f:%f\n", centroids[0].x, centroids[0].y, centroids[1].x, centroids[1].y, centroids[2].x, centroids[2].y);
+    int iterations = 0; int numofbestcl; 
+    // int foundonesize = 0; int offsetiffound = 0;
     struct obj_t *oldcentroids = calloc(k, sizeof(struct obj_t));
     struct cluster_t *labels = calloc(k, sizeof(struct cluster_t));
     for (int i = 0; i < k; i++) init_cluster(&labels[i], 1);
@@ -453,15 +524,23 @@ struct cluster_t *k_means(struct obj_t *objarr, int narr, int k) {
             numofbestcl = nearest_point(&objarr[i], centroids, k);
             append_cluster(&labels[numofbestcl], objarr[i]);
         }
-        if (iterations == 0) {
-            for (int i = 0; i < k; i++) {
-                if (labels[i].size == 1) {
-                    centroids[i] = objarr[k];
-                    continue;
-                }
-            }
-        }
+
+        // if (iterations == 0) {
+        //     for (int i = 0; i < k; i++) {
+        //         if (labels[i].size == 1) {
+        //             centroids[i] = objarr[k+offsetiffound];
+        //             iterations = 0;
+        //             foundonesize = 1;
+        //             offsetiffound++;
+        //         }
+        //     }
+        //     if (foundonesize == 1){
+        //         foundonesize = 0;
+        //         continue;
+        //     }
+        // }
         memcpy(oldcentroids, centroids, sizeof(struct obj_t) * k);
+
         struct obj_t newcentroid;
         for (int i = 0; i < k; i++) {
             newcentroid = labels[i].obj[0];
@@ -519,10 +598,6 @@ int main(int argc, char *argv[])
     int c1, c2;
     // printf("%d, %s\n", atoi(argv[2]), argv[1]);
     int count = load_clusters(argv[1], &clusters);
-    if (count == -1) {
-        fprintf(stderr, "error while loading clusters!\n");
-        return 1;
-    }
     int sizeofarr = count;
     for (int i = 0; i < count - clusterstosortnum; i++) {
         find_neighbours(clusters, sizeofarr, &c1, &c2, &cluster_distance);
