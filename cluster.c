@@ -88,11 +88,17 @@ void init_cluster(struct cluster_t *c, int cap)
     c->capacity = cap;
     if (cap > 0) {
         c->obj = malloc(cap*sizeof(struct obj_t));
-        assert(c->obj != NULL);
+        if (c->obj == NULL) {
+            fprintf(stderr, "Error: malloc failed");
+            exit(1);
+        }
     }
-    else
+    else if (cap == 0)
         c->obj = NULL;
-
+    else {
+        fprintf(stderr, "error: negative capacity");
+        exit(1);
+    }
 }
 
 /*
@@ -101,6 +107,11 @@ void init_cluster(struct cluster_t *c, int cap)
 void clear_cluster(struct cluster_t *c)
 {
     assert(c != NULL);
+
+    if (c == NULL) {
+        fprintf(stderr, "error: cluster is NULL");
+        exit(1);
+    }
 
     free(c->obj);
     c->obj = NULL;
@@ -143,7 +154,10 @@ void append_cluster(struct cluster_t *c, struct obj_t obj)
 {
     if (c->size == c->capacity) {
         c = resize_cluster(c, c->capacity+1);
-        assert(c->obj != NULL);
+        if (c == NULL) {
+            fprintf(stderr, "error: resize failed");
+            exit(1);
+        }
     }
     c->obj[c->size] = obj;
     c->size++;
@@ -293,21 +307,52 @@ int load_clusters(char *filename, struct cluster_t **arr)
     assert(arr != NULL);
 
     int count = 0;
-
+    
     FILE *file = fopen(filename, "r");
-    assert(file != NULL);
-    assert(fscanf(file, "count=%d\n", &count) == 1);
+    if (file == NULL) {
+        fprintf(stderr, "error: file not found\n");
+        exit(1);
+    }
+
+    if (fscanf(file, "count=%d\n", &count) != 1) {
+        fprintf(stderr, "error: invalid count\n");
+        exit(1);
+    }
+    if (count < 1) {
+        fprintf(stderr, "error: count can't be below one\n");
+        exit(1);
+    }
 
     struct cluster_t poleshluku[count];
+    int ids[count];
 
-    int id; float x, y;
+    int id = 0; float x = 0, y = 0, temp_id = 0;
     for (int i = 0; i < count; i++) {
         struct cluster_t temp_cluster;
-        assert(fscanf(file, "%d %f %f\n", &id, &x, &y) == 3);
+        if (fscanf(file, "%f %f %f\n", &temp_id, &x, &y) != 3) { // if there is no 3 arguments
+            fprintf(stderr, "error: invalid input (less than 3 numbers in line)\n");
+            exit(1);
+        }
+        if (trunc(temp_id) != temp_id) { // if id is not integer
+            fprintf(stderr, "error: id is not integer\n");
+            exit(1);
+        }
+        id = temp_id;
+        if (id < 0 || x > 1000 || y > 1000 || x < 0 || y < 0) {
+            fprintf(stderr, "error: invalid input\n");
+            exit(1);
+        }
+        for (int j = 0; j < i; j++) { // test for unique id
+            if (ids[j] == id) {
+                fprintf(stderr, "error: id already exists\n");
+                exit(1);
+            }
+        }
         struct obj_t temp_object = {.id=id, .x=x, .y=y};
         init_cluster(&temp_cluster, 1);
         append_cluster(&temp_cluster, temp_object);
         poleshluku[i] = temp_cluster;
+        ids[i] = id;
     }
 
     struct cluster_t *clusterarray = malloc(sizeof(poleshluku));
@@ -355,17 +400,25 @@ float cd_maximum_objd(struct cluster_t *c1, struct cluster_t *c2)
     return dist;
 }
 
+// k-means clustering
+
 /*
   Extracts all the objects from the cluster array
   and puts them into one array.
 */
-void extract_objects(struct cluster_t *arr, int narr, struct obj_t *objarr){
+void extract_objects(struct cluster_t *arr, int narr, struct obj_t *objarr) {
+    assert(arr != NULL);
+    assert(objarr != NULL);
+    assert(narr > 0);
     for (int i = 0; i < narr; i++) {
         objarr[i] = arr[i].obj[0];
     }
 }
 
 int compare_objects(struct obj_t *a, struct obj_t *b, int k) {
+    assert(a != NULL);
+    assert(b != NULL);
+    assert(k > 0);
     for (int i = 0; i < k; i++) {
         if (a[i].x == b[i].x && a[i].y == b[i].y) return 1;
     }
@@ -433,14 +486,19 @@ int main(int argc, char *argv[])
     int clusterstosortnum;
     if (argc == 2) {
         clusterstosortnum = 1;
-        int count = load_clusters(argv[1], &clusters);
-        print_clusters(clusters, count);
-        return 0;
     }
     else if (argc == 3) {
+        if (atoi(argv[2]) == 0) {
+            fprintf(stderr, "invalid argument (not number)\n");
+            return 1;
+        }
+        else if (atoi(argv[2]) != atof(argv[2])) {
+            fprintf(stderr, "invalid argument (must be not float)\n");
+            return 1;
+        }
         clusterstosortnum = atoi(argv[2]);
     }
-    else if (argc == 4 && strcmp(argv[1], "-k") == 0) {
+    else if (argc == 4 && strcmp(argv[1], "-k") == 0) { // k-means
         clusterstosortnum = atoi(argv[3]);
         int count = load_clusters(argv[2], &clusters);
         struct obj_t *objarr = malloc(sizeof(struct obj_t) * count);
@@ -459,7 +517,12 @@ int main(int argc, char *argv[])
     }
 
     int c1, c2;
+    // printf("%d, %s\n", atoi(argv[2]), argv[1]);
     int count = load_clusters(argv[1], &clusters);
+    if (count == -1) {
+        fprintf(stderr, "error while loading clusters!\n");
+        return 1;
+    }
     int sizeofarr = count;
     for (int i = 0; i < count - clusterstosortnum; i++) {
         find_neighbours(clusters, sizeofarr, &c1, &c2, &cluster_distance);
