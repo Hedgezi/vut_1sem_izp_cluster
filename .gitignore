@@ -3,3 +3,5 @@ cluster
 .vscode/*
 .idea/*
 test.py
+randomtest.c
+rdtest

@@ -42,7 +42,11 @@
 
 #endif
 
-#define checkmalloc(p) if ((p) == NULL) {fprintf(stderr, "can't allocate (on line %d).\n", __LINE__); exit(1);}
+#define checkmalloc(p) if ((p) == NULL) {fprintf(stderr, "can't allocate (on line %d).\n", __LINE__); return -1;}
+#define checkpointer(p) if ((p) == NULL) {fprintf(stderr, "was given pointer to NULL (on line %d).\n", __LINE__); return -1;}
+#define checkforerror(statement, error) if ((statement)) {fprintf(stderr, "error: " error); return -1;}
+#define checkforerrorandfree(statement, error, n) if ((statement)) {fprintf(stderr, "error: " error); free_clusters(n); return -1;}
+
 
 /*****************************************************************
  * Deklarace potrebnych datovych typu:
@@ -82,7 +86,7 @@ struct cluster_t {
  Inicializace shluku 'c'. Alokuje pamet pro cap objektu (kapacitu).
  Ukazatel NULL u pole objektu znamena kapacitu 0.
 */
-void init_cluster(struct cluster_t *c, int cap)
+int init_cluster(struct cluster_t *c, int cap)
 {
     assert(c != NULL);
     assert(cap >= 0);
@@ -98,25 +102,26 @@ void init_cluster(struct cluster_t *c, int cap)
     else {
         fprintf(stderr, "error: negative capacity");
         exit(1);
+        return -1;
     }
+    return 0;
 }
 
 /*
  Odstraneni vsech objektu shluku a inicializace na prazdny shluk.
  */
-void clear_cluster(struct cluster_t *c)
+int clear_cluster(struct cluster_t *c)
 {
     assert(c != NULL);
 
-    if (c == NULL) {
-        fprintf(stderr, "error: cluster is NULL");
-        exit(1);
-    }
+    checkpointer(c);
+    checkpointer(c->obj);
 
     free(c->obj);
     c->obj = NULL;
     c->capacity = 0;
     c->size = 0;
+    return 0;
 }
 
 /// Chunk of cluster objects. Value recommended for reallocation.
@@ -150,17 +155,19 @@ struct cluster_t *resize_cluster(struct cluster_t *c, int new_cap)
  Prida objekt 'obj' na konec shluku 'c'. Rozsiri shluk, pokud se do nej objekt
  nevejde.
  */
-void append_cluster(struct cluster_t *c, struct obj_t obj)
+int append_cluster(struct cluster_t *c, struct obj_t obj)
 {
+    assert(c != NULL);
+
+    checkpointer(c);
+
     if (c->size == c->capacity) {
-        c = resize_cluster(c, c->capacity+1);
-        if (c == NULL) {
-            fprintf(stderr, "error: resize failed");
-            exit(1);
-        }
+        c = resize_cluster(c, c->capacity+CLUSTER_CHUNK);
+        checkmalloc(c);
     }
     c->obj[c->size] = obj;
     c->size++;
+    return 0;
 }
 
 /*
@@ -173,10 +180,13 @@ void sort_cluster(struct cluster_t *c);
  Objekty ve shluku 'c1' budou serazeny vzestupne podle identifikacniho cisla.
  Shluk 'c2' bude nezmenen.
  */
-void merge_clusters(struct cluster_t *c1, struct cluster_t *c2)
+int merge_clusters(struct cluster_t *c1, struct cluster_t *c2)
 {
     assert(c1 != NULL);
     assert(c2 != NULL);
+
+    checkpointer(c1);
+    checkpointer(c2);
 
     if (c1->capacity < c1->size+c2->size) {
         c1 = resize_cluster(c1, c1->size+c2->size);
@@ -184,6 +194,7 @@ void merge_clusters(struct cluster_t *c1, struct cluster_t *c2)
     for (int i = 0; i < c2->size; i++) {
         append_cluster(c1, c2->obj[i]);
     }
+    return 0;
 }
 
 /**********************************************************************/
@@ -295,6 +306,9 @@ void print_cluster(struct cluster_t *c)
     putchar('\n');
 }
 
+/*
+Free all memory allocated for clusters and objects
+*/
 void free_clusters(struct cluster_t *clusters, int ncl, int freeclarr)
 {
     for (int i = 0; i < ncl; i++) {
@@ -319,18 +333,9 @@ int load_clusters(char *filename, struct cluster_t **arr)
     
     FILE *file = fopen(filename, "r");
 
-    if (file == NULL) {
-        fprintf(stderr, "error: file not found\n");
-        exit(1);
-    }
-    if (fscanf(file, "count=%d\n", &count) != 1) {
-        fprintf(stderr, "error: invalid count\n");
-        exit(1);
-    }
-    if (count < 1) {
-        fprintf(stderr, "error: count can't be below one\n");
-        exit(1);
-    }
+    checkforerror(file == NULL, "error: file not found\n");
+    checkforerror(fscanf(file, "count=%d\n", &count) != 1, "error: invalid count\n");
+    checkforerror(count < 1, "error: count can't be below one\n");
 
     struct cluster_t poleshluku[count];
     int ids[count];
@@ -432,6 +437,9 @@ void extract_objects(struct cluster_t *arr, int narr, struct obj_t *objarr) {
     }
 }
 
+/*
+Compares two obj_t 
+*/
 int compare_objects(struct obj_t *a, struct obj_t *b, int k) {
     assert(a != NULL);
     assert(b != NULL);
@@ -468,8 +476,6 @@ struct obj_t *k_meanspp(struct obj_t *objarr, int narr, int k) { // k-means++
     assert(narr > 0);
     assert(k > 0);
 
-    srand(time(0));
-
     struct obj_t *centroids = malloc(sizeof(struct obj_t)*k);
     centroids[0] = objarr[rand() % narr];
     for (int i = 1; i < k; i++) {
@@ -505,27 +511,24 @@ struct obj_t *k_meanspp_roll(struct obj_t *objarr, int narr, int k, int acc) {
     for (int j = 0; j < narr; j++) {
             mean += squared_obj_distance(&objarr[j], &centroids[nearest_point(&objarr[j], centroids, k)]);
     }
-    mean /= narr;
     for (int i = 1; i < acc; i++) {
         struct obj_t *tempcentroids = k_meanspp(objarr, narr, k);
         float tempmean = 0.0;
         for (int j = 0; j < narr; j++) {
             tempmean += squared_obj_distance(&objarr[j], &tempcentroids[nearest_point(&objarr[j], tempcentroids, k)]);
         }
-        tempmean /= narr;
         if (tempmean < mean) {
             mean = tempmean;
             centroids = tempcentroids;
         }
     }
-    fprintf(stderr, "inert: %f\n", mean);
+    // fprintf(stderr, "inert: %f\n", mean);
     return centroids;
 }
 
 struct cluster_t *k_means(struct obj_t *objarr, int narr, int k, int acc) {
     struct obj_t *centroids = k_meanspp_roll(objarr, narr, k, acc);
-    fprintf(stderr, "Centroids: I: %f:%f II: %f:%f III: %f:%f\n", centroids[0].x, centroids[0].y, centroids[1].x, centroids[1].y, centroids[2].x, centroids[2].y);
-    int iterations = 0; int numofbestcl; 
+    int iterations = 0; int numofbestcl;
     struct obj_t *oldcentroids = calloc(k, sizeof(struct obj_t));
     struct cluster_t *labels = calloc(k, sizeof(struct cluster_t));
     for (int i = 0; i < k; i++) init_cluster(&labels[i], 1);
@@ -566,20 +569,15 @@ int main(int argc, char *argv[])
         dist_fun = cluster_distance;
     }
     else if (argc == 3) {
-        if (atoi(argv[2]) == 0) {
-            fprintf(stderr, "invalid argument (not number)\n");
-            return 1;
-        }
-        else if (atoi(argv[2]) != atof(argv[2])) {
-            fprintf(stderr, "invalid argument (must be not float)\n");
-            return 1;
-        }
+        checkforerror(atoi(argv[2]) == 0, "invalid argument (not number)\n")
+        checkforerror(atoi(argv[2]) != atof(argv[2]), "invalid argument (must be integer)\n")
         dist_fun = cluster_distance;
         clusterstosortnum = atoi(argv[2]);
     }
     else if (argc == 4 && strcmp(argv[1], "-k") == 0) { // k-means
         clusterstosortnum = atoi(argv[3]);
         int count = load_clusters(argv[2], &clusters);
+        srand(time(NULL));
         struct obj_t *objarr = malloc(sizeof(struct obj_t) * count);
         extract_objects(clusters, count, objarr);
         struct cluster_t *sortedarr = k_means(objarr, count, clusterstosortnum, 1000);
@@ -602,12 +600,16 @@ int main(int argc, char *argv[])
     int c1, c2;
 
     int count = load_clusters(argv[1], &clusters);
+    if (count == -1) 
+        return -1;
     int sizeofarr = count;
     for (int i = 0; i < count - clusterstosortnum; i++) {
         find_neighbours(clusters, sizeofarr, &c1, &c2, dist_fun);
         merge_clusters(&clusters[c1], &clusters[c2]);
         sizeofarr = remove_cluster(clusters, sizeofarr, c2);
-        sort_cluster(&clusters[c1]);
+    }
+    for (int i = 0; i < clusterstosortnum; i++) {
+        sort_cluster(&clusters[i]);
     }
     print_clusters(clusters, sizeofarr);
 
