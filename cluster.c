@@ -42,11 +42,11 @@
 
 #endif
 
-#define checkmalloc(p) if ((p) == NULL) {fprintf(stderr, "can't allocate (on line %d).\n", __LINE__); return -1;}
-#define checkpointer(p) if ((p) == NULL) {fprintf(stderr, "was given pointer to NULL (on line %d).\n", __LINE__); return -1;}
-#define checkforerror(statement, error) if ((statement)) {fprintf(stderr, "error: " error); return -1;}
-#define checkforerrorandfree(statement, error, n) if ((statement)) {fprintf(stderr, "error: " error); free_clusters(n); return -1;}
-
+#define checkmalloc(p) if ((p) == NULL) {fprintf(stderr, "can't allocate (on line %d).\n", __LINE__); return -1;} // if malloc failed, return an error
+#define checkpointer(p) if ((p) == NULL) {fprintf(stderr, "was given pointer to NULL (on line %d).\n", __LINE__); return -1;} // if given pointer is NULL, return an error
+#define checkforerror(statement, error) if ((statement)) {fprintf(stderr, error); return -1;}
+#define checkforerrorandfree(statement, error, n) if ((statement)) {fprintf(stderr, error); free_clusters(n); return -1;}
+#define checkforerrorfreeclose(statement, error, n, file) if ((statement)) {fprintf(stderr, error); free_clusters(poleshluku, n, 0); fclose(file); return -1;}
 
 /*****************************************************************
  * Deklarace potrebnych datovych typu:
@@ -93,13 +93,13 @@ int init_cluster(struct cluster_t *c, int cap)
 
     c->size = 0;
     c->capacity = cap;
-    if (cap > 0) {
+    if (cap > 0) { // allocating memory, if capacity is greater than 0
         c->obj = malloc(cap*sizeof(struct obj_t));
         checkmalloc(c->obj);
     }
-    else if (cap == 0)
+    else if (cap == 0) // if capacity is 0, then pointer is NULL
         c->obj = NULL;
-    else {
+    else { // if capacity is less than 0, then error, because capacity can't be negative
         fprintf(stderr, "error: negative capacity");
         exit(1);
         return -1;
@@ -189,7 +189,7 @@ int merge_clusters(struct cluster_t *c1, struct cluster_t *c2)
     checkpointer(c2);
 
     if (c1->capacity < c1->size+c2->size) {
-        c1 = resize_cluster(c1, c1->size+c2->size);
+        c1 = resize_cluster(c1, (c1->size+c2->size)/CLUSTER_CHUNK*CLUSTER_CHUNK+CLUSTER_CHUNK); // resizing to the nearest multiple of CLUSTER_CHUNK, in the bigger side
     }
     for (int i = 0; i < c2->size; i++) {
         append_cluster(c1, c2->obj[i]);
@@ -210,6 +210,8 @@ int remove_cluster(struct cluster_t *carr, int narr, int idx)
     assert(idx < narr);
     assert(narr > 0);
 
+    checkpointer(carr);
+
     free(carr[idx].obj);
     for (int i = idx; i < narr-1; i++) {
         carr[i] = carr[i+1];
@@ -225,7 +227,7 @@ float obj_distance(struct obj_t *o1, struct obj_t *o2)
     assert(o1 != NULL);
     assert(o2 != NULL);
 
-    return sqrt(pow((o1->x - o2->x), 2)+pow((o1->y - o2->y), 2));
+    return sqrtf(pow((o1->x - o2->x), 2)+pow((o1->y - o2->y), 2));
 }
 
 /*
@@ -242,7 +244,7 @@ float cluster_distance(struct cluster_t *c1, struct cluster_t *c2)
 
     for (int i = 0; i < c1->size; i++) {
         for (int j = 0; j < c2->size; j++) {
-            dist = (dist > obj_distance(&c1->obj[i], &c2->obj[j])) ? obj_distance(&c1->obj[i], &c2->obj[j]) : dist;
+            dist = (dist > obj_distance(&c1->obj[i], &c2->obj[j])) ? obj_distance(&c1->obj[i], &c2->obj[j]) : dist; // if the next object distance is smaller than the current one, it becomes the new current one (min)
         }
     }
     return dist;
@@ -255,7 +257,7 @@ float cluster_distance(struct cluster_t *c1, struct cluster_t *c2)
  adresu 'c1' resp. 'c2'.
 */
 void find_neighbours(struct cluster_t *carr, int narr, int *c1, int *c2, float (*cd)(struct cluster_t *, struct cluster_t *))
-{
+{ // cd is a pointer to a function that calculates the distance between two clusters (we have cluster_distance (nearest neighbour) and cd_maximum_objd (farthest neighbour))
     assert(narr > 0);
 
     float mindist = cd(&carr[0], &carr[1]);
@@ -343,35 +345,15 @@ int load_clusters(char *filename, struct cluster_t **arr)
     int id = 0; float x = 0, y = 0, temp_id = 0;
     for (int i = 0; i < count; i++) {
         struct cluster_t temp_cluster;
-        if (fscanf(file, "%f %f %f\n", &temp_id, &x, &y) != 3) { // if there is no 3 arguments
-            fprintf(stderr, "error: invalid input (less than 3 numbers in line %d)\n", i+2);
-            free_clusters(poleshluku, i, 0);
-            fclose(file);
-            exit(1);
-        }
-        if (trunc(temp_id) != temp_id || trunc(x) != x || trunc(y) != y) { // if id is not integer
-            fprintf(stderr, "error: data are not integer (on line %d)\n", i+2);
-            free_clusters(poleshluku, i, 0);
-            fclose(file);
-            exit(1);
-        }
+        checkforerrorfreeclose(fscanf(file, "%f %f %f\n", &temp_id, &x, &y) != 3, "error: invalid input\n", i, file); // if there is no 3 arguments
+        checkforerrorfreeclose(trunc(temp_id) != temp_id || trunc(x) != x || trunc(y) != y, "error: data are not integer\n", i, file); // if id is not integer
         id = temp_id;
-        if (id < 0 || x > 1000 || y > 1000 || x < 0 || y < 0) {
-            fprintf(stderr, "error: invalid input (on line %d)\n", i+2);
-            free_clusters(poleshluku, i, 0);
-            fclose(file);
-            exit(1);
-        }
+        checkforerrorfreeclose(id < 0 || x > 1000 || y > 1000 || x < 0 || y < 0, "error: invalid input\n", i, file); // if id is negative or coordinates are out of range
         for (int j = 0; j < i; j++) { // test for unique id
-            if (ids[j] == id) {
-                fprintf(stderr, "error: id already exists\n");
-                free_clusters(poleshluku, i, 0);
-                fclose(file);
-                exit(1);
-            }
+            checkforerrorfreeclose(ids[j] == id, "error: id already exists\n", i, file);
         }
         struct obj_t temp_object = {.id=id, .x=x, .y=y};
-        init_cluster(&temp_cluster, 1);
+        init_cluster(&temp_cluster, CLUSTER_CHUNK);
         append_cluster(&temp_cluster, temp_object);
         poleshluku[i] = temp_cluster;
         ids[i] = id;
@@ -522,7 +504,7 @@ struct obj_t *k_meanspp_roll(struct obj_t *objarr, int narr, int k, int acc) {
             centroids = tempcentroids;
         }
     }
-    // fprintf(stderr, "inert: %f\n", mean);
+    fprintf(stderr, "inert: %f\n", mean);
     return centroids;
 }
 
@@ -582,10 +564,8 @@ int main(int argc, char *argv[])
         extract_objects(clusters, count, objarr);
         struct cluster_t *sortedarr = k_means(objarr, count, clusterstosortnum, 1000);
         print_clusters(sortedarr, clusterstosortnum);
-        for (int i = 0; i < clusterstosortnum; i++) {
-            free(clusters[i].obj);
-        }
-        free(clusters);
+        free(objarr);
+        free_clusters(sortedarr, clusterstosortnum, 1);
         return 0;
     }
     else if (argc == 4 && strcmp(argv[3], "-nvzd") == 0) { // nejvzdalen. soused
