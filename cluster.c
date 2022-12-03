@@ -320,6 +320,12 @@ void free_clusters(struct cluster_t *clusters, int ncl, int freeclarr)
         free(clusters);
 }
 
+// int read_line(FILE *file, float *id, float *x, float *y) 
+// {
+//     char line[40];
+//     fgets(line, 40, file);
+// }
+
 /*
  Ze souboru 'filename' nacte objekty. Pro kazdy objekt vytvori shluk a ulozi
  jej do pole shluku. Alokuje prostor pro pole vsech shluku a ukazatel na prvni
@@ -341,11 +347,14 @@ int load_clusters(char *filename, struct cluster_t **arr)
 
     struct cluster_t poleshluku[count];
     int ids[count];
+    char nline[3];
 
     int id = 0; float x = 0, y = 0, temp_id = 0;
     for (int i = 0; i < count; i++) {
         struct cluster_t temp_cluster;
-        checkforerrorfreeclose(fscanf(file, "%f %f %f\n", &temp_id, &x, &y) != 3, "error: invalid input\n", poleshluku, i); // if there is no 3 arguments
+        checkforerrorfreeclose(fscanf(file, "%f %f %f", &temp_id, &x, &y) != 3, "error: invalid input\n", poleshluku, i); // if there is no 3 arguments
+        fgets(nline, 2, file);
+        checkforerrorfreeclose(strcmp(nline, "\n") != 0, "error: invalid input\n", poleshluku, i); // if there is no new line after the 3 arguments
         checkforerrorfreeclose(trunc(temp_id) != temp_id || trunc(x) != x || trunc(y) != y, "error: data are not integer\n", poleshluku, i); // if id is not integer
         id = temp_id;
         checkforerrorfreeclose(id < 0 || x > 1000 || y > 1000 || x < 0 || y < 0, "error: invalid input\n", poleshluku, i); // if id is negative or coordinates are out of range
