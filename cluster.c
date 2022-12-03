@@ -45,8 +45,8 @@
 #define checkmalloc(p) if ((p) == NULL) {fprintf(stderr, "can't allocate (on line %d).\n", __LINE__); return -1;} // if malloc failed, return an error
 #define checkpointer(p) if ((p) == NULL) {fprintf(stderr, "was given pointer to NULL (on line %d).\n", __LINE__); return -1;} // if given pointer is NULL, return an error
 #define checkforerror(statement, error) if ((statement)) {fprintf(stderr, error); return -1;}
-#define checkforerrorandfree(statement, error, n) if ((statement)) {fprintf(stderr, error); free_clusters(n); return -1;}
-#define checkforerrorfreeclose(statement, error, n, file) if ((statement)) {fprintf(stderr, error); free_clusters(poleshluku, n, 0); fclose(file); return -1;}
+#define checkforerrorandfree(statement, error, arr, n) if ((statement)) {fprintf(stderr, error); free_clusters(arr, n, 1); return -1;}
+#define checkforerrorfreeclose(statement, error, arr, n) if ((statement)) {fprintf(stderr, error); free_clusters(arr, n, 0); fclose(file); return -1;}
 
 /*****************************************************************
  * Deklarace potrebnych datovych typu:
@@ -345,12 +345,12 @@ int load_clusters(char *filename, struct cluster_t **arr)
     int id = 0; float x = 0, y = 0, temp_id = 0;
     for (int i = 0; i < count; i++) {
         struct cluster_t temp_cluster;
-        checkforerrorfreeclose(fscanf(file, "%f %f %f\n", &temp_id, &x, &y) != 3, "error: invalid input\n", i, file); // if there is no 3 arguments
-        checkforerrorfreeclose(trunc(temp_id) != temp_id || trunc(x) != x || trunc(y) != y, "error: data are not integer\n", i, file); // if id is not integer
+        checkforerrorfreeclose(fscanf(file, "%f %f %f\n", &temp_id, &x, &y) != 3, "error: invalid input\n", poleshluku, i); // if there is no 3 arguments
+        checkforerrorfreeclose(trunc(temp_id) != temp_id || trunc(x) != x || trunc(y) != y, "error: data are not integer\n", poleshluku, i); // if id is not integer
         id = temp_id;
-        checkforerrorfreeclose(id < 0 || x > 1000 || y > 1000 || x < 0 || y < 0, "error: invalid input\n", i, file); // if id is negative or coordinates are out of range
+        checkforerrorfreeclose(id < 0 || x > 1000 || y > 1000 || x < 0 || y < 0, "error: invalid input\n", poleshluku, i); // if id is negative or coordinates are out of range
         for (int j = 0; j < i; j++) { // test for unique id
-            checkforerrorfreeclose(ids[j] == id, "error: id already exists\n", i, file);
+            checkforerrorfreeclose(ids[j] == id, "error: id already exists\n", poleshluku, i);
         }
         struct obj_t temp_object = {.id=id, .x=x, .y=y};
         init_cluster(&temp_cluster, CLUSTER_CHUNK);
@@ -385,7 +385,7 @@ void print_clusters(struct cluster_t *carr, int narr)
 
 /*
  Pocita vzdalenost dvou shluku,
- pomoci metody nejvzdálenějšího souseda.
+ pomoci metody nejvzdalenejsiho souseda.
 */
 float cd_maximum_objd(struct cluster_t *c1, struct cluster_t *c2)
 {
@@ -440,6 +440,9 @@ float squared_obj_distance(struct obj_t *o1, struct obj_t *o2)
     return pow((o1->x - o2->x), 2)+pow((o1->y - o2->y), 2);
 }
 
+/*
+  Finds the closest cluster to the objects from the array *givenobj
+*/
 int nearest_point(struct obj_t *givenobj, struct obj_t *centroids, int k) {
     assert(k > 1);
     float dist = squared_obj_distance(givenobj, &centroids[0]);
@@ -453,6 +456,11 @@ int nearest_point(struct obj_t *givenobj, struct obj_t *centroids, int k) {
     return idnearestcl;
 }
 
+/*
+  Realization of the k-means++ algorithm.
+  k-means++ is an algorithm for choosing the initial optimal seeds for the k-means clustering algorithm.
+  Wiki: https://en.wikipedia.org/wiki/K-means%2B%2B
+*/
 struct obj_t *k_meanspp(struct obj_t *objarr, int narr, int k) { // k-means++
     assert(objarr != NULL);
     assert(narr > 0);
@@ -487,6 +495,10 @@ struct obj_t *k_meanspp(struct obj_t *objarr, int narr, int k) { // k-means++
     return centroids;
 }
 
+/*
+  This function launch k-means++ a few (int acc) times and returns the best result,
+  based on inertia (sum of squared distances of samples to their closest cluster center)
+*/
 struct obj_t *k_meanspp_roll(struct obj_t *objarr, int narr, int k, int acc) {
     struct obj_t *centroids = k_meanspp(objarr, narr, k);
     float mean = 0.0;
@@ -501,13 +513,22 @@ struct obj_t *k_meanspp_roll(struct obj_t *objarr, int narr, int k, int acc) {
         }
         if (tempmean < mean) {
             mean = tempmean;
+            free(centroids);
             centroids = tempcentroids;
+        }
+        else {
+            free(tempcentroids);
         }
     }
     fprintf(stderr, "inert: %f\n", mean);
     return centroids;
 }
 
+/*
+  Realisation of the k-means algorithm.
+  It takes seed values from k-means++ using k_meanspp_roll function.
+  Wiki: https://en.wikipedia.org/wiki/K-means_clustering
+*/
 struct cluster_t *k_means(struct obj_t *objarr, int narr, int k, int acc) {
     struct obj_t *centroids = k_meanspp_roll(objarr, narr, k, acc);
     int iterations = 0; int numofbestcl;
@@ -546,19 +567,20 @@ int main(int argc, char *argv[])
 
     int clusterstosortnum;
     float (*dist_fun)(struct cluster_t *, struct cluster_t *);
+
     if (argc == 2) {
         clusterstosortnum = 1;
         dist_fun = cluster_distance;
     }
     else if (argc == 3) {
-        checkforerror(atoi(argv[2]) == 0, "invalid argument (not number)\n")
+        checkforerror(atoi(argv[2]) <= 0, "invalid argument\n")
         checkforerror(atoi(argv[2]) != atof(argv[2]), "invalid argument (must be integer)\n")
         dist_fun = cluster_distance;
         clusterstosortnum = atoi(argv[2]);
     }
-    else if (argc == 4 && strcmp(argv[1], "-k") == 0) { // k-means
-        clusterstosortnum = atoi(argv[3]);
-        int count = load_clusters(argv[2], &clusters);
+    else if (argc == 4 && strcmp(argv[3], "-k") == 0) { // k-means
+        clusterstosortnum = atoi(argv[2]);
+        int count = load_clusters(argv[1], &clusters);
         srand(time(NULL));
         struct obj_t *objarr = malloc(sizeof(struct obj_t) * count);
         extract_objects(clusters, count, objarr);
@@ -566,10 +588,13 @@ int main(int argc, char *argv[])
         print_clusters(sortedarr, clusterstosortnum);
         free(objarr);
         free_clusters(sortedarr, clusterstosortnum, 1);
+        free_clusters(clusters, count, 1);
         return 0;
     }
     else if (argc == 4 && strcmp(argv[3], "-nvzd") == 0) { // nejvzdalen. soused
-        dist_fun = &cd_maximum_objd;
+        checkforerror(atoi(argv[2]) <= 0, "invalid argument\n")
+        checkforerror(atoi(argv[2]) != atof(argv[2]), "invalid argument (must be integer)\n")
+        dist_fun = cd_maximum_objd;
         clusterstosortnum = atoi(argv[2]);
     }
     else {
@@ -582,6 +607,7 @@ int main(int argc, char *argv[])
     int count = load_clusters(argv[1], &clusters);
     if (count == -1) 
         return -1;
+    checkforerrorandfree(count < clusterstosortnum, "invalid argument (too big num for final clusters)\n", clusters, count)
     int sizeofarr = count;
     for (int i = 0; i < count - clusterstosortnum; i++) {
         find_neighbours(clusters, sizeofarr, &c1, &c2, dist_fun);
