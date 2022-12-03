@@ -520,7 +520,6 @@ struct obj_t *k_meanspp_roll(struct obj_t *objarr, int narr, int k, int acc) {
             free(tempcentroids);
         }
     }
-    fprintf(stderr, "inert: %f\n", mean);
     return centroids;
 }
 
@@ -579,17 +578,10 @@ int main(int argc, char *argv[])
         clusterstosortnum = atoi(argv[2]);
     }
     else if (argc == 4 && strcmp(argv[3], "-k") == 0) { // k-means
+        checkforerror(atoi(argv[2]) <= 0, "invalid argument\n")
+        checkforerror(atoi(argv[2]) != atof(argv[2]), "invalid argument (must be integer)\n")
         clusterstosortnum = atoi(argv[2]);
-        int count = load_clusters(argv[1], &clusters);
         srand(time(NULL));
-        struct obj_t *objarr = malloc(sizeof(struct obj_t) * count);
-        extract_objects(clusters, count, objarr);
-        struct cluster_t *sortedarr = k_means(objarr, count, clusterstosortnum, 1000);
-        print_clusters(sortedarr, clusterstosortnum);
-        free(objarr);
-        free_clusters(sortedarr, clusterstosortnum, 1);
-        free_clusters(clusters, count, 1);
-        return 0;
     }
     else if (argc == 4 && strcmp(argv[3], "-nvzd") == 0) { // nejvzdalen. soused
         checkforerror(atoi(argv[2]) <= 0, "invalid argument\n")
@@ -609,15 +601,25 @@ int main(int argc, char *argv[])
         return -1;
     checkforerrorandfree(count < clusterstosortnum, "invalid argument (too big num for final clusters)\n", clusters, count)
     int sizeofarr = count;
-    for (int i = 0; i < count - clusterstosortnum; i++) {
-        find_neighbours(clusters, sizeofarr, &c1, &c2, dist_fun);
-        merge_clusters(&clusters[c1], &clusters[c2]);
-        sizeofarr = remove_cluster(clusters, sizeofarr, c2);
+    if (argc == 4 && strcmp(argv[3], "-k") == 0) {
+        struct obj_t *objarr = malloc(sizeof(struct obj_t) * count);
+        extract_objects(clusters, count, objarr);
+        struct cluster_t *sortedarr = k_means(objarr, count, clusterstosortnum, 1000);
+        print_clusters(sortedarr, clusterstosortnum);
+        free(objarr);
+        free_clusters(sortedarr, clusterstosortnum, 1);
     }
-    for (int i = 0; i < clusterstosortnum; i++) {
-        sort_cluster(&clusters[i]);
+    else {
+        for (int i = 0; i < count - clusterstosortnum; i++) {
+            find_neighbours(clusters, sizeofarr, &c1, &c2, dist_fun);
+            merge_clusters(&clusters[c1], &clusters[c2]);
+            sizeofarr = remove_cluster(clusters, sizeofarr, c2);
+        }
+        for (int i = 0; i < clusterstosortnum; i++) {
+            sort_cluster(&clusters[i]);
+        }
+        print_clusters(clusters, sizeofarr);
     }
-    print_clusters(clusters, sizeofarr);
 
     free_clusters(clusters, sizeofarr, 1);
 }
