@@ -1,3 +1,9 @@
+/*
+Mykola Vorontsov (xvoron03)
+k-means: ./cluster file num_clusters -k
+nejvzdalenejsi: ./cluster file num_clusters -nvzd
+*/
+
 /**
  * Kostra programu pro 2. projekt IZP 2022/23
  *
@@ -117,6 +123,7 @@ int clear_cluster(struct cluster_t *c)
 {
     assert(c != NULL);
 
+    // if some of pointer are NULL, throw an error
     checkpointer(c);
     checkpointer(c->obj);
 
@@ -164,7 +171,7 @@ int append_cluster(struct cluster_t *c, struct obj_t obj)
 
     checkpointer(c);
 
-    if (c->size == c->capacity) {
+    if (c->size == c->capacity) { // if size is equal to capacity, then resize cluster
         c = resize_cluster(c, c->capacity+CLUSTER_CHUNK);
         checkmalloc(c);
     }
@@ -191,12 +198,12 @@ int merge_clusters(struct cluster_t *c1, struct cluster_t *c2)
     checkpointer(c1);
     checkpointer(c2);
 
-    if (c1->capacity < c1->size+c2->size) {
+    if (c1->capacity < c1->size+c2->size) { // if capacity is less than size of both clusters, then it will resize cluster
         c1 = resize_cluster(c1, (c1->size+c2->size)/CLUSTER_CHUNK*CLUSTER_CHUNK+CLUSTER_CHUNK); // resizing to the nearest multiple of CLUSTER_CHUNK, in the bigger side
-        if (c1 == NULL) return -1;
+        if (c1 == NULL) return -1; // if resize_cluster returned NULL, then return -1
     }
     for (int i = 0; i < c2->size; i++) {
-        append_cluster(c1, c2->obj[i]);
+        append_cluster(c1, c2->obj[i]); // appending objects from c2 to c1
     }
     return 0;
 }
@@ -244,10 +251,11 @@ float cluster_distance(struct cluster_t *c1, struct cluster_t *c2)
     assert(c2 != NULL);
     assert(c2->size > 0);
 
-    float dist = obj_distance(&c1->obj[0], &c2->obj[0]);
+    float dist = obj_distance(&c1->obj[0], &c2->obj[0]); // initializing distance with distance between first objects in both clusters
 
     for (int i = 0; i < c1->size; i++) {
         for (int j = 0; j < c2->size; j++) {
+            // if distance between two given objects is smaller than dist (minimal distance), then dist is equal to this distance
             dist = (dist > obj_distance(&c1->obj[i], &c2->obj[j])) ? obj_distance(&c1->obj[i], &c2->obj[j]) : dist; // if the next object distance is smaller than the current one, it becomes the new current one (min)
         }
     }
@@ -269,7 +277,7 @@ void find_neighbours(struct cluster_t *carr, int narr, int *c1, int *c2, float (
 
     for (int i = 0; i < narr; i++) {
         for (int j = i+1; j < narr; j++) {
-            if (mindist > cd(&carr[i], &carr[j])) {
+            if (mindist > cd(&carr[i], &carr[j])) { // if distance between two given clusters is smaller than mindist (minimal distance), then mindist is equal to this distance and c1 and c2 are equal to their indexes
                 mindist = cd(&carr[i], &carr[j]);
                 *c1 = i;
                 *c2 = j;
@@ -324,12 +332,6 @@ void free_clusters(struct cluster_t *clusters, int ncl, int freeclarr)
         free(clusters);
 }
 
-// int read_line(FILE *file, float *id, float *x, float *y) 
-// {
-//     char line[40];
-//     fgets(line, 40, file);
-// }
-
 /*
  Ze souboru 'filename' nacte objekty. Pro kazdy objekt vytvori shluk a ulozi
  jej do pole shluku. Alokuje prostor pro pole vsech shluku a ukazatel na prvni
@@ -345,9 +347,9 @@ int load_clusters(char *filename, struct cluster_t **arr)
     
     FILE *file = fopen(filename, "r");
 
-    checkforerror(file == NULL, "error: file not found\n");
-    checkforerror(fscanf(file, "count=%d\n", &count) != 1, "error: invalid count\n");
-    checkforerror(count < 1, "error: count can't be below one\n");
+    checkforerror(file == NULL, "error: file not found\n"); // if file is not found, throw an error
+    checkforerror(fscanf(file, "count=%d\n", &count) != 1, "error: invalid count\n"); // if count hadn't been read, then throw an error
+    checkforerror(count < 1, "error: count can't be below one\n"); // if count is below one, then throw an error
 
     struct cluster_t poleshluku[count];
     int ids[count];
@@ -357,7 +359,7 @@ int load_clusters(char *filename, struct cluster_t **arr)
     for (int i = 0; i < count; i++) {
         struct cluster_t temp_cluster;
         checkforerrorfreeclose(fscanf(file, "%f %f %f", &temp_id, &x, &y) != 3, "error: invalid input\n", poleshluku, i); // if there is no 3 arguments
-        fgets(nline, 2, file);
+        fgets(nline, 2, file); // read the newline character using fgets
         checkforerrorfreeclose(strcmp(nline, "\n") != 0, "error: invalid input\n", poleshluku, i); // if there is no new line after the 3 arguments
         checkforerrorfreeclose(trunc(temp_id) != temp_id || trunc(x) != x || trunc(y) != y, "error: data are not integer\n", poleshluku, i); // if id is not integer
         id = temp_id;
@@ -374,7 +376,7 @@ int load_clusters(char *filename, struct cluster_t **arr)
 
     struct cluster_t *clusterarray = malloc(sizeof(poleshluku));
     checkforerrorfreeclose(clusterarray == NULL, "error: memory allocation failed\n", poleshluku, count);
-    for (int i = 0; i < count; i++) {
+    for (int i = 0; i < count; i++) { // copy clusters from the array to newly allocated array
         clusterarray[i] = poleshluku[i];
     }
     *arr = clusterarray;
@@ -434,7 +436,7 @@ void extract_objects(struct cluster_t *arr, int narr, struct obj_t *objarr) {
 }
 
 /*
-Compares two obj_t 
+Compares two obj_t; returns 1 if they are equal, 0 otherwise.
 */
 int compare_objects(struct obj_t *a, struct obj_t *b, int k) {
     assert(a != NULL);
@@ -485,12 +487,12 @@ struct obj_t *k_meanspp(struct obj_t *objarr, int narr, int k) { // k-means++
 
     struct obj_t *centroids = malloc(sizeof(struct obj_t)*k);
     checkmallocforkmeans(centroids);
-    centroids[0] = objarr[rand() % narr];
+    centroids[0] = objarr[rand() % narr]; // choose the first centroid randomly
     for (int i = 1; i < k; i++) {
         float sumofdist = 0;
         float *distances = malloc(sizeof(float)*narr);
         checkmallocforkmeansandfree(distances);
-        for (int j = 0; j < narr; j++) {
+        for (int j = 0; j < narr; j++) { // calculate the distance between the object and the nearest centroid
             float mindist = squared_obj_distance(&objarr[j], &centroids[0]);
             for (int l = 1; l < i; l++) {
                 if (squared_obj_distance(&objarr[j], &centroids[l]) < mindist) {
@@ -500,6 +502,7 @@ struct obj_t *k_meanspp(struct obj_t *objarr, int narr, int k) { // k-means++
             distances[j] = mindist;
             sumofdist += mindist;
         }
+        // choose the next centroid randomly, based on their distances from other centroids
         float random = ((float)rand()/RAND_MAX)*sumofdist;
         float sum = 0;
         for (int j = 0; j < narr; j++) {
@@ -519,12 +522,14 @@ struct obj_t *k_meanspp(struct obj_t *objarr, int narr, int k) { // k-means++
   based on inertia (sum of squared distances of samples to their closest cluster center)
 */
 struct obj_t *k_meanspp_roll(struct obj_t *objarr, int narr, int k, int acc) {
+    // setting up the initial values
     struct obj_t *centroids = k_meanspp(objarr, narr, k);
     checkmallocforkmeans(centroids);
     float mean = 0.0;
     for (int j = 0; j < narr; j++) {
             mean += squared_obj_distance(&objarr[j], &centroids[nearest_point(&objarr[j], centroids, k)]);
     }
+    // initializing a lot of seeds, and choose the best with the best result (lowest inertia)
     for (int i = 1; i < acc; i++) {
         struct obj_t *tempcentroids = k_meanspp(objarr, narr, k);
         checkmallocforkmeansandfree(tempcentroids);
@@ -550,23 +555,23 @@ struct obj_t *k_meanspp_roll(struct obj_t *objarr, int narr, int k, int acc) {
   Wiki: https://en.wikipedia.org/wiki/K-means_clustering
 */
 struct cluster_t *k_means(struct obj_t *objarr, int narr, int k, int acc) {
-    struct obj_t *centroids = k_meanspp_roll(objarr, narr, k, acc);
+    struct obj_t *centroids = k_meanspp_roll(objarr, narr, k, acc); // use k-means++ to get the initial centroids
     checkmallocforkmeans(centroids);
     int iterations = 0; int numofbestcl;
-    struct obj_t *oldcentroids = calloc(k, sizeof(struct obj_t));
+    struct obj_t *oldcentroids = calloc(k, sizeof(struct obj_t)); // array of old centroids
     checkmallocforkmeansandfree(oldcentroids);
-    struct cluster_t *labels = calloc(k, sizeof(struct cluster_t));
+    struct cluster_t *labels = calloc(k, sizeof(struct cluster_t)); // array of clusters
     checkmallocforkmeansandfree(labels);
-    for (int i = 0; i < k; i++) init_cluster(&labels[i], 1);
+    for (int i = 0; i < k; i++) init_cluster(&labels[i], 1); // initialize clusters
     while (!compare_objects(centroids, oldcentroids, k) && iterations < 200) {
         for (int i = 0; i < k; i++) clear_cluster(&labels[i]);
-        for (int i = 0; i < narr; i++) {
+        for (int i = 0; i < narr; i++) { // assign each object to the cluster, based on nearest centroid
             numofbestcl = nearest_point(&objarr[i], centroids, k);
             append_cluster(&labels[numofbestcl], objarr[i]);
         }
 
         memcpy(oldcentroids, centroids, sizeof(struct obj_t) * k);
-        struct obj_t newcentroid;
+        struct obj_t newcentroid; // calculate new centroids
         for (int i = 0; i < k; i++) {
             newcentroid = labels[i].obj[0];
             for (int j = 1; j < labels[i].size; j++) {
@@ -589,8 +594,9 @@ int main(int argc, char *argv[])
     struct cluster_t *clusters;
 
     int clusterstosortnum;
-    float (*dist_fun)(struct cluster_t *, struct cluster_t *);
+    float (*dist_fun)(struct cluster_t *, struct cluster_t *); // pointer to a function for calculating distance between clusters
 
+    // checking the number of arguments
     if (argc == 2) {
         clusterstosortnum = 1;
         dist_fun = cluster_distance;
@@ -625,7 +631,7 @@ int main(int argc, char *argv[])
         return -1;
     checkforerrorandfree(count < clusterstosortnum, "invalid argument (too big num for final clusters)\n", clusters, count)
     int sizeofarr = count;
-    if (argc == 4 && strcmp(argv[3], "-k") == 0) {
+    if (argc == 4 && strcmp(argv[3], "-k") == 0) { // k-means
         struct obj_t *objarr = malloc(sizeof(struct obj_t) * count);
         checkforerrorandfree(objarr == NULL, "malloc error\n", clusters, count);
         extract_objects(clusters, count, objarr);
