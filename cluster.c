@@ -47,6 +47,9 @@
 #define checkforerror(statement, error) if ((statement)) {fprintf(stderr, error); return -1;}
 #define checkforerrorandfree(statement, error, arr, n) if ((statement)) {fprintf(stderr, error); free_clusters(arr, n, 1); return -1;}
 #define checkforerrorfreeclose(statement, error, arr, n) if ((statement)) {fprintf(stderr, error); free_clusters(arr, n, 0); fclose(file); return -1;}
+#define checkmallocforkmeans(p) if ((p) == NULL) {fprintf(stderr, "can't allocate (on line %d).\n", __LINE__); return NULL;} // if malloc failed, return an error
+#define checkmallocforkmeansandfree(p) if ((p) == NULL) {fprintf(stderr, "can't allocate (on line %d).\n", __LINE__); free(centroids); return NULL;} // if malloc failed, return an error
+
 
 /*****************************************************************
  * Deklarace potrebnych datovych typu:
@@ -190,6 +193,7 @@ int merge_clusters(struct cluster_t *c1, struct cluster_t *c2)
 
     if (c1->capacity < c1->size+c2->size) {
         c1 = resize_cluster(c1, (c1->size+c2->size)/CLUSTER_CHUNK*CLUSTER_CHUNK+CLUSTER_CHUNK); // resizing to the nearest multiple of CLUSTER_CHUNK, in the bigger side
+        if (c1 == NULL) return -1;
     }
     for (int i = 0; i < c2->size; i++) {
         append_cluster(c1, c2->obj[i]);
@@ -362,13 +366,14 @@ int load_clusters(char *filename, struct cluster_t **arr)
             checkforerrorfreeclose(ids[j] == id, "error: id already exists\n", poleshluku, i);
         }
         struct obj_t temp_object = {.id=id, .x=x, .y=y};
-        init_cluster(&temp_cluster, CLUSTER_CHUNK);
-        append_cluster(&temp_cluster, temp_object);
+        checkforerrorfreeclose(init_cluster(&temp_cluster, CLUSTER_CHUNK) != 0, "error: memory allocation failed\n", poleshluku, i);
+        checkforerrorfreeclose(append_cluster(&temp_cluster, temp_object) != 0, "error: memory reallocation failed\n", poleshluku, i);
         poleshluku[i] = temp_cluster;
         ids[i] = id;
     }
 
     struct cluster_t *clusterarray = malloc(sizeof(poleshluku));
+    checkforerrorfreeclose(clusterarray == NULL, "error: memory allocation failed\n", poleshluku, count);
     for (int i = 0; i < count; i++) {
         clusterarray[i] = poleshluku[i];
     }
@@ -441,6 +446,9 @@ int compare_objects(struct obj_t *a, struct obj_t *b, int k) {
     return 0;
 }
 
+/*
+  Calculates the squared distance between two objects
+*/
 float squared_obj_distance(struct obj_t *o1, struct obj_t *o2)
 {
     assert(o1 != NULL);
@@ -476,10 +484,12 @@ struct obj_t *k_meanspp(struct obj_t *objarr, int narr, int k) { // k-means++
     assert(k > 0);
 
     struct obj_t *centroids = malloc(sizeof(struct obj_t)*k);
+    checkmallocforkmeans(centroids);
     centroids[0] = objarr[rand() % narr];
     for (int i = 1; i < k; i++) {
         float sumofdist = 0;
         float *distances = malloc(sizeof(float)*narr);
+        checkmallocforkmeansandfree(distances);
         for (int j = 0; j < narr; j++) {
             float mindist = squared_obj_distance(&objarr[j], &centroids[0]);
             for (int l = 1; l < i; l++) {
@@ -510,12 +520,14 @@ struct obj_t *k_meanspp(struct obj_t *objarr, int narr, int k) { // k-means++
 */
 struct obj_t *k_meanspp_roll(struct obj_t *objarr, int narr, int k, int acc) {
     struct obj_t *centroids = k_meanspp(objarr, narr, k);
+    checkmallocforkmeans(centroids);
     float mean = 0.0;
     for (int j = 0; j < narr; j++) {
             mean += squared_obj_distance(&objarr[j], &centroids[nearest_point(&objarr[j], centroids, k)]);
     }
     for (int i = 1; i < acc; i++) {
         struct obj_t *tempcentroids = k_meanspp(objarr, narr, k);
+        checkmallocforkmeansandfree(tempcentroids);
         float tempmean = 0.0;
         for (int j = 0; j < narr; j++) {
             tempmean += squared_obj_distance(&objarr[j], &tempcentroids[nearest_point(&objarr[j], tempcentroids, k)]);
@@ -539,9 +551,12 @@ struct obj_t *k_meanspp_roll(struct obj_t *objarr, int narr, int k, int acc) {
 */
 struct cluster_t *k_means(struct obj_t *objarr, int narr, int k, int acc) {
     struct obj_t *centroids = k_meanspp_roll(objarr, narr, k, acc);
+    checkmallocforkmeans(centroids);
     int iterations = 0; int numofbestcl;
     struct obj_t *oldcentroids = calloc(k, sizeof(struct obj_t));
+    checkmallocforkmeansandfree(oldcentroids);
     struct cluster_t *labels = calloc(k, sizeof(struct cluster_t));
+    checkmallocforkmeansandfree(labels);
     for (int i = 0; i < k; i++) init_cluster(&labels[i], 1);
     while (!compare_objects(centroids, oldcentroids, k) && iterations < 200) {
         for (int i = 0; i < k; i++) clear_cluster(&labels[i]);
@@ -612,8 +627,10 @@ int main(int argc, char *argv[])
     int sizeofarr = count;
     if (argc == 4 && strcmp(argv[3], "-k") == 0) {
         struct obj_t *objarr = malloc(sizeof(struct obj_t) * count);
+        checkforerrorandfree(objarr == NULL, "malloc error\n", clusters, count);
         extract_objects(clusters, count, objarr);
         struct cluster_t *sortedarr = k_means(objarr, count, clusterstosortnum, 1000);
+        checkforerrorandfree(sortedarr == NULL, "malloc error\n", clusters, count);
         print_clusters(sortedarr, clusterstosortnum);
         free(objarr);
         free_clusters(sortedarr, clusterstosortnum, 1);
@@ -621,7 +638,7 @@ int main(int argc, char *argv[])
     else {
         for (int i = 0; i < count - clusterstosortnum; i++) {
             find_neighbours(clusters, sizeofarr, &c1, &c2, dist_fun);
-            merge_clusters(&clusters[c1], &clusters[c2]);
+            checkforerrorandfree(merge_clusters(&clusters[c1], &clusters[c2]) == -1, "merge error\n", clusters, count);
             sizeofarr = remove_cluster(clusters, sizeofarr, c2);
         }
         for (int i = 0; i < clusterstosortnum; i++) {
